@@ -7,11 +7,15 @@
 
 namespace WordPress\AI\Tests\Integration\Experiments\Connector_Approval;
 
+use WP_Connector_Registry;
 use WP_UnitTestCase;
+use WordPress\AI\Connector_Approval\Approvals_Store;
 use WordPress\AI\Experiments\Connector_Approval\Connector_Approval;
 use WordPress\AI\Experiments\Experiment_Category;
 use WordPress\AI\Features\Loader;
 use WordPress\AI\Features\Registry;
+
+use function WordPress\AI\get_ai_connectors;
 
 /**
  * Connector_Approval experiment test case.
@@ -19,6 +23,15 @@ use WordPress\AI\Features\Registry;
  * @since 1.0.0
  */
 class Connector_ApprovalTest extends WP_UnitTestCase {
+	/**
+	 * Test connector ID registered for the unsupported_model tests.
+	 *
+	 * @since x.x.x
+	 *
+	 * @var string
+	 */
+	private const TEST_CONNECTOR_ID = 'wpai_test_provider';
+
 	/**
 	 * Experiment instance under test.
 	 *
@@ -77,6 +90,14 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 		foreach ( $this->stubbed_abilities as $ability_id ) {
 			wp_unregister_ability( $ability_id );
 		}
+
+		$registry = WP_Connector_Registry::get_instance();
+		if ( null !== $registry && $registry->is_registered( self::TEST_CONNECTOR_ID ) ) {
+			$registry->unregister( self::TEST_CONNECTOR_ID );
+		}
+
+		delete_option( Approvals_Store::OPTION_APPROVALS );
+		delete_option( Approvals_Store::OPTION_PENDING );
 		$this->stubbed_abilities = array();
 
 		parent::tearDown();
@@ -138,6 +159,77 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 		}
 
 		$this->stubbed_abilities[] = $ability_id;
+	}
+
+	/**
+	 * Registers a test AI provider connector so get_ai_connectors() returns at
+	 * least one connector, regardless of which core connectors are active.
+	 *
+	 * @since x.x.x
+	 */
+	private function register_test_connector(): void {
+		$registry = WP_Connector_Registry::get_instance();
+		if ( null === $registry ) {
+			$this->markTestSkipped( 'The connector registry is not available.' );
+		}
+
+		if ( $registry->is_registered( self::TEST_CONNECTOR_ID ) ) {
+			return;
+		}
+
+		$registry->register(
+			self::TEST_CONNECTOR_ID,
+			array(
+				'name'           => 'Test Provider',
+				'description'    => 'Test provider for Connector_Approval tests.',
+				'type'           => 'ai_provider',
+				'authentication' => array(
+					'method'       => 'api_key',
+					'setting_name' => 'wpai_test_provider_key',
+				),
+			)
+		);
+	}
+
+	/**
+	 * Returns the AI plugin's basename, as the Caller_Identifier resolves it for
+	 * code running from this test file.
+	 *
+	 * @since x.x.x
+	 *
+	 * @return string
+	 */
+	private function ai_plugin_basename(): string {
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		foreach ( array_keys( get_plugins() ) as $basename ) {
+			if ( str_starts_with( (string) $basename, 'ai/' ) ) {
+				return (string) $basename;
+			}
+		}
+
+		return 'ai';
+	}
+
+	/**
+	 * Builds a REST error response with the given code.
+	 *
+	 * @since x.x.x
+	 *
+	 * @param string $code   The error code.
+	 * @param int    $status The HTTP status.
+	 * @return \WP_REST_Response
+	 */
+	private function error_response( string $code, int $status = 403 ): \WP_REST_Response {
+		return new \WP_REST_Response(
+			array(
+				'code'    => $code,
+				'message' => 'Original message.',
+			),
+			$status
+		);
 	}
 
 	/**
@@ -206,7 +298,7 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 	/**
 	 * Test that customize_rest_error filter modifies error messages.
 	 *
-	 * @since 1.1.0
+	 * @since x.x.x
 	 */
 	public function test_customize_rest_error() {
 		$this->register_stub_ability( 'ai/title-generation', 'Title Generation' );
@@ -234,7 +326,7 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 	/**
 	 * Test that customize_rest_error filter modifies error messages for different abilities.
 	 *
-	 * @since 1.1.0
+	 * @since x.x.x
 	 */
 	public function test_customize_rest_error_different_abilities() {
 		$this->register_stub_ability( 'ai/excerpt-generation', 'Excerpt Generation' );
@@ -290,7 +382,7 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 	/**
 	 * Test that registering the experiment registers notices and pages when is_admin() is true.
 	 *
-	 * @since 1.1.0
+	 * @since x.x.x
 	 */
 	public function test_register_in_admin_context() {
 		// Mock admin context using set_current_screen
@@ -310,25 +402,122 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 	/**
 	 * Test customize_rest_error returns the input immediately if it is not a WP_REST_Response or is not an error.
 	 *
-	 * @since 1.1.0
+	 * @since x.x.x
 	 */
 	public function test_customize_rest_error_with_invalid_response() {
 		$this->experiment->register();
 
+		// Use an abilities run route so the route check passes and the response checks are reached.
+		$request = new \WP_REST_Request( 'POST', '/wp-abilities/v1/abilities/ai/title-generation/run' );
+
 		// Not a WP_REST_Response (e.g. string)
-		$result_string = $this->experiment->customize_rest_error( 'not_a_response', rest_get_server(), new \WP_REST_Request() );
+		$result_string = $this->experiment->customize_rest_error( 'not_a_response', rest_get_server(), $request );
 		$this->assertSame( 'not_a_response', $result_string );
 
 		// WP_REST_Response but not an error (status 200)
 		$response_200 = new \WP_REST_Response( array( 'status' => 'ok' ), 200 );
-		$result_200   = $this->experiment->customize_rest_error( $response_200, rest_get_server(), new \WP_REST_Request() );
+		$result_200   = $this->experiment->customize_rest_error( $response_200, rest_get_server(), $request );
 		$this->assertSame( $response_200, $result_200 );
+		$this->assertSame( array( 'status' => 'ok' ), $result_200->get_data() );
+	}
+
+	/**
+	 * Test customize_rest_error leaves non-ability routes untouched.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_customize_rest_error_ignores_non_ability_routes() {
+		$request  = new \WP_REST_Request( 'POST', '/wp/v2/posts' );
+		$response = $this->error_response( 'wpai_connector_not_approved' );
+
+		$result = $this->experiment->customize_rest_error( $response, rest_get_server(), $request );
+
+		$this->assertSame( 'Original message.', $result->get_data()['message'] );
+	}
+
+	/**
+	 * Test customize_rest_error leaves error responses without an error code untouched.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_customize_rest_error_ignores_response_without_code() {
+		$request  = new \WP_REST_Request( 'POST', '/wp-abilities/v1/abilities/ai/title-generation/run' );
+		$response = new \WP_REST_Response( array( 'message' => 'No code.' ), 500 );
+
+		$result = $this->experiment->customize_rest_error( $response, rest_get_server(), $request );
+
+		$this->assertSame( array( 'message' => 'No code.' ), $result->get_data() );
+	}
+
+	/**
+	 * Test customize_rest_error leaves run routes without an ability ID untouched.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_customize_rest_error_ignores_route_without_ability_id() {
+		$request  = new \WP_REST_Request( 'POST', '/wp-abilities/v1/abilities/run' );
+		$response = $this->error_response( 'wpai_connector_not_approved' );
+
+		$result = $this->experiment->customize_rest_error( $response, rest_get_server(), $request );
+
+		$this->assertSame( 'Original message.', $result->get_data()['message'] );
+	}
+
+	/**
+	 * Test customize_rest_error converts an unsupported_model error into a
+	 * pending-authorization error when the caller has an unapproved connector.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_customize_rest_error_converts_unsupported_model_when_connector_unapproved() {
+		$this->register_test_connector();
+		$this->register_stub_ability( 'ai/title-generation', 'Title Generation' );
+
+		$request  = new \WP_REST_Request( 'POST', '/wp-abilities/v1/abilities/ai/title-generation/run' );
+		$response = $this->error_response( 'unsupported_model', 400 );
+
+		$result = $this->experiment->customize_rest_error( $response, rest_get_server(), $request );
+		$data   = $result->get_data();
+
+		$this->assertSame( 403, $result->get_status() );
+		$this->assertSame( 'wpai_connector_not_approved', $data['code'] );
+		$this->assertSame( 403, $data['data']['status'] );
+		$this->assertArrayHasKey( $data['data']['connector_id'], get_ai_connectors() );
+		$this->assertSame( $this->ai_plugin_basename(), $data['data']['caller']['basename'] );
+		$this->assertStringContainsString( 'Title Generation failed.', $data['message'] );
+		$this->assertStringContainsString( 'The AI connector is currently pending authorization.', $data['message'] );
+	}
+
+	/**
+	 * Test customize_rest_error leaves an unsupported_model error untouched when
+	 * the caller is approved for every connector.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_customize_rest_error_ignores_unsupported_model_when_all_connectors_approved() {
+		$this->register_test_connector();
+
+		$store    = new Approvals_Store();
+		$basename = $this->ai_plugin_basename();
+		foreach ( array_keys( get_ai_connectors() ) as $connector_id ) {
+			$store->set_approval( $basename, $connector_id, true );
+		}
+
+		$request  = new \WP_REST_Request( 'POST', '/wp-abilities/v1/abilities/ai/title-generation/run' );
+		$response = $this->error_response( 'unsupported_model', 400 );
+
+		$result = $this->experiment->customize_rest_error( $response, rest_get_server(), $request );
+		$data   = $result->get_data();
+
+		$this->assertSame( 400, $result->get_status() );
+		$this->assertSame( 'unsupported_model', $data['code'] );
+		$this->assertSame( 'Original message.', $data['message'] );
 	}
 
 	/**
 	 * Test customize_rest_error filter modifies error messages for all context abilities.
 	 *
-	 * @since 1.1.0
+	 * @since x.x.x
 	 */
 	public function test_customize_rest_error_all_abilities() {
 		// Labels mirror what each ability is actually registered with in production
