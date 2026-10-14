@@ -591,5 +591,4 @@ PHP
 
 		$this->assertSame( $prompt_builder, $result, 'Should return the same builder instance when supported' );
 	}
-
 }

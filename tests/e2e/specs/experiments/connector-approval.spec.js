@@ -148,9 +148,6 @@ test.describe( 'Connector Approval Experiment', () => {
 		editor,
 		page,
 	} ) => {
-		// Globally turn on Experiments.
-		await enableExperiments( admin, page );
-
 		// Enable both experiments.
 		await enableExperiment( admin, page, 'Connector Approval' );
 		await enableExperiment( admin, page, 'Title Generation' );

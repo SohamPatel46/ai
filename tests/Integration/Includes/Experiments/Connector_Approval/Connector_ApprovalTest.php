@@ -97,7 +97,8 @@ class Connector_ApprovalTest extends WP_UnitTestCase {
 	 * @param string $label      The ability label to register it with.
 	 */
 	private function register_stub_ability( string $ability_id, string $label ): void {
-		if ( wp_get_ability( $ability_id ) ) {
+		// wp_get_ability() triggers _doing_it_wrong() on a miss, so check with wp_has_ability().
+		if ( wp_has_ability( $ability_id ) ) {
 			return;
 		}
 

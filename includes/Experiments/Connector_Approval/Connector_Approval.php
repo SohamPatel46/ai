@@ -199,7 +199,8 @@ class Connector_Approval extends Abstract_Feature {
 	 * @return string The context-aware error message.
 	 */
 	private function get_context_aware_error_message( string $ability_id ): string {
-		$ability = wp_get_ability( $ability_id );
+		// Check existence first; wp_get_ability() triggers _doing_it_wrong() on a miss.
+		$ability = wp_has_ability( $ability_id ) ? wp_get_ability( $ability_id ) : null;
 
 		if ( $ability ) {
 			$prefix = sprintf(
