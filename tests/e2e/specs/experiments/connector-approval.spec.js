@@ -12,6 +12,12 @@ const {
 } = require( '../../utils/helpers' );
 
 test.describe( 'Connector Approval Experiment', () => {
+	// Later specs make AI requests without approving connectors, so leave the
+	// experiment off once each test finishes.
+	test.afterEach( async ( { admin, page } ) => {
+		await disableExperiment( admin, page, 'Connector Approval' );
+	} );
+
 	test( 'Can enable the connector approval experiment', async ( {
 		admin,
 		page,
