@@ -143,7 +143,7 @@ test.describe( 'Connector Approval Experiment', () => {
 		).not.toBeVisible();
 	} );
 
-	test( 'Context-aware error message appears when connector is unapproved', async ( {
+	test( 'Approval error message appears when connector is unapproved', async ( {
 		admin,
 		editor,
 		page,
@@ -165,29 +165,12 @@ test.describe( 'Connector Approval Experiment', () => {
 		).toBeVisible();
 
 		// Remove approval for OpenAI for the AI plugin.
-		const aiMatrixRow = page
-			.locator( '.ai-connector-approval__matrix tbody tr' )
-			.filter( {
-				has: page.locator( 'code', { hasText: 'ai/ai.php' } ),
-			} );
-
-		const openAiColumnIndex = await page
-			.locator( '.ai-connector-approval__matrix thead th', {
-				hasText: 'OpenAI',
-			} )
-			.first()
-			.evaluate( ( cell ) =>
-				Array.from( cell.parentElement.children ).indexOf( cell )
-			);
-
-		const aiOpenAiToggle = aiMatrixRow.locator(
-			`td:nth-child(${
-				openAiColumnIndex + 1
-			}) input.components-form-toggle__input`
-		);
+		const aiOpenAiToggle = page.getByLabel( 'Allow AI to use OpenAI', {
+			exact: true,
+		} );
 
 		if ( await aiOpenAiToggle.isChecked() ) {
-			await aiOpenAiToggle.uncheck();
+			await aiOpenAiToggle.click( { force: true } );
 			await expect( aiOpenAiToggle ).not.toBeChecked();
 		}
 
@@ -222,11 +205,12 @@ test.describe( 'Connector Approval Experiment', () => {
 			.getByRole( 'button', { name: 'Generate' } )
 			.click();
 
-		// Ensure the context-aware error message snackbar appears.
-		const snackbar = page.locator( '.components-snackbar' );
-		await expect( snackbar ).toBeVisible();
-		await expect( snackbar ).toHaveText(
-			/Title Generation failed. The AI connector is currently pending authorization. Please approve the request under Tools > Connector Approvals./i
-		);
+		// Ensure the approval error notice appears.
+		await expect(
+			page.locator( '.components-notice.is-error', {
+				hasText:
+					'The OpenAI connector is pending approval. Please approve it under Tools > Connector Approvals.',
+			} )
+		).toBeVisible();
 	} );
 } );
